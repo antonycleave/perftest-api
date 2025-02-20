@@ -4,13 +4,22 @@ import (
 /*	"log"
 	"os"
 	"os/exec" */
+	"fmt"
+	"strconv"
 	"net"
 	"time"
 )
 
-func buildIBWriteBWArgs() {
+func buildIBWriteBWArgs(myTask Task) ([]string) {
 	//this will convert the supplied args inti
-
+    var arglist []string
+	arglist = append(arglist,"--duration", strconv.FormatUint(myTask.Duration, 10))
+	arglist = append(arglist, "-q", strconv.FormatUint(myTask.QP, 10))
+	arglist = append(arglist, "-s", strconv.FormatUint(myTask.MsgSize, 10))
+	if myTask.IgnoreCPUSpeedWarnings {
+		arglist = append(arglist, "-F")
+	}
+	return arglist
 }
 
 func Listener() (port int, err error) {
@@ -24,12 +33,17 @@ func Listener() (port int, err error) {
 }
 
 
-func startIBWriteBW() {
-	buildIBWriteBWArgs()
+func startIBWriteBW(myTask Task, nicIndex int) {
+    tcpPort, _ := Listener()
+	arglist := buildIBWriteBWArgs(myTask)
+    arglist = append([]string{"/opt/perftest-with-rocm/bin/ib_write_bw", "-p", fmt.Sprintf("%d", tcpPort), "-d", fmt.Sprintf("%s", NicList[nicIndex])}, arglist...)
+	fmt.Println(arglist)
 	// this will start an ib_write_bw_process
-    /*cmd := exec.Command( "" )
+	/*
+    cmd := exec.Command( arglist )
     err := cmd.Start()
-    if err != nil {
+    time.Sleep(time.Duration(myTask.Duration) * time.Second)
+	if err != nil {
         return err
     }
     pid := cmd.Process.Pid
@@ -40,7 +54,7 @@ func startIBWriteBW() {
         fmt.Printf("Command finished with error: %v", err)
     }()
     */
-	time.Sleep(2 * time.Second)
+	time.Sleep(time.Duration(myTask.Duration) * time.Second)
     return
 
 }
