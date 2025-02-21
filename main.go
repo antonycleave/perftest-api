@@ -21,6 +21,7 @@ type Task struct {
 	QP uint64 `json:"qp,omitempty"`// the number of queue pairs to use
 	MsgSize uint64 `json:"msgsize,omitempty"`// the size of the message to send in bytes
 	IgnoreCPUSpeedWarnings bool `json:"ignorecpuspeedarnings,omitempty"`
+	ResponseWriter http.ResponseWriter
 }
 
 func  parseBodyToTask(r *http.Request) (Task, error) {
@@ -31,7 +32,8 @@ func  parseBodyToTask(r *http.Request) (Task, error) {
         Duration: 5,
 		QP: 2,
 		MsgSize: 8383608,
-		IgnoreCPUSpeedWarnings: true }
+		IgnoreCPUSpeedWarnings: true,
+	}
 	// the next part reads in json body data and applies any appropriate data to the struct
 	decoder:=json.NewDecoder(r.Body)
 	err := decoder.Decode(&myTask)
@@ -44,7 +46,10 @@ func taskWorker(index int) {
 		fmt.Printf("Processing Task ID: %d from taskworker %d\n", task.ID, index)
 		// Simulate task processing time
 		//
-		startIBWriteBW(task, index)
+		err := startIBWriteBW(task, index)
+		if err != nil {
+			fmt.Printf("in taskworker %v\n", err)
+		}
 		fmt.Printf("Task ID %d completed\n", task.ID)
 	}
 }
@@ -59,10 +64,10 @@ func submitTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task.ID=taskID
+	task.ResponseWriter=w
 	select {
 	case taskQueue <- task:
 		taskID = taskID + 1
-		fmt.Fprintf(w, "Task ID %d added to queue\n", task.ID)
 	default:
 		// If channel is full or there are too many tasks running, reject new task
 		http.Error(w, "Server is busy, try again later", http.StatusTooManyRequests)
