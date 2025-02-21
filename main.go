@@ -74,7 +74,7 @@ func main() {
 	maxNics=len(NicList)
 	// Start workers (equal to the number of available nics)
 	for i := 0; i < maxNics; i++ {
-		//wg.Add(1)
+		wg.Add(1)
 		go taskWorker(i)
 	}
 
@@ -84,12 +84,12 @@ func main() {
 	// Start HTTP server
 	port := 8000
 
-	fmt.Printf("Starting server on port %v...", port)
+	fmt.Printf("Starting server on port %v...\n", port)
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
 		fmt.Println("Error starting server:", err)
 		os.Exit(1)
 	}
 
 	// Wait for all workers to finish before exiting
-	//wg.Wait()
+	wg.Wait()
 }
