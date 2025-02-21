@@ -57,15 +57,28 @@ func startIBWriteBW(myTask Task, nicIndex int) (error) {
         return err
 		fmt.Printf("Command finished with error: %v. the pid is/was %d\n", err, ib_write_bw_cmd.Process.Pid)
     }
-	time.Sleep(time.Duration(myTask.Duration + ibWriteClientWait) * time.Second)
-	pid := ib_write_bw_cmd.Process.Pid
-    pgid, err := syscall.Getpgid(pid)
-	if err == nil {
-		fmt.Printf("Killing process. The pid is %d, and the pgid we are killing is %d\n", pid, pgid)
-		err := syscall.Kill(-pgid, syscall.SIGKILL)
-		if err != nil {
-			fmt.Printf("kill Command finished with error: %v. the pid is/was %d\n", err, pid)
-			return  err
+	// thanks stack overflow! https://stackoverflow.com/questions/32921792/how-do-you-kill-a-process-and-its-children-on-a-timeout-in-go-code
+	// buffered chan is important so the goroutine does't
+	// get blocked and stick around if the function returns
+	// after the timeout
+	done := make(chan error, 1)
+	    go func() {
+		done <- ib_write_bw_cmd.Wait()
+	}()
+    select {
+	case err := <-done:
+		// this will be nil if no error
+		return err
+	case <-time.After(time.Duration(myTask.Duration + ibWriteClientWait) * time.Second):
+		pid := ib_write_bw_cmd.Process.Pid
+		pgid, err := syscall.Getpgid(pid)
+		if err == nil {
+			fmt.Printf("Client didn't connect in time. Killing process. The pid is %d, and the pgid we are killing is %d\n", pid, pgid)
+			err := syscall.Kill(-pgid, syscall.SIGKILL)
+			if err != nil {
+				fmt.Printf("kill Command finished with error: %v. the pid is/was %d\n", err, pid)
+				return  err
+			}
 		}
 	}
 	return nil
