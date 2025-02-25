@@ -14,8 +14,7 @@ const ibWriteClientWait uint64 = 20
 
 /*
 ibWriteErrorWait is the time to wait to ensure that the server process has started
-
-	it also is used as the delay between default checks
+it also is used as the delay between default checks
 */
 const ibWriteErrorWait = 100 * time.Millisecond
 
@@ -72,8 +71,7 @@ func startIBWriteBW(myTask Task, nicIndex int) error {
 	}()
 	fmt.Printf("port=%d\n", tcpPort)
 	sent_ok := false
-	first_run := true
-	first_run_time := time.Now()
+	serverStarttime := time.Now()
 	for {
 		select {
 		case ibwbresult := <-done:
@@ -82,30 +80,26 @@ func startIBWriteBW(myTask Task, nicIndex int) error {
 			}
 			return nil
 		default:
-			if first_run {
-				first_run = false
-			} else {
-				if !sent_ok && time.Now().Sub(first_run_time) > ibWriteErrorWait {
-					if ib_write_bw_cmd.ProcessState.ExitCode() == -1 {
-						sent_ok = true
-						myTask.OutputChannel <- TaskResult{ServerPort: tcpPort}
-					}
-				} else if time.Now().Sub(first_run_time) > (time.Duration(myTask.Duration+ibWriteClientWait) * time.Second) {
-					// this next bit kills the process and frees up the worker for another job
-					pid := ib_write_bw_cmd.Process.Pid
-					pgid, err := syscall.Getpgid(pid)
-					if err == nil {
-						fmt.Printf("Client didn't connect or finish in time. Killing process. The pid is %d, and the pgid we are killing is %d\n", pid, pgid)
-						err := syscall.Kill(-pgid, syscall.SIGKILL)
-						if err != nil {
-							fmt.Printf("kill Command finished with error: %v. the pid is/was %d\n", err, pid)
-							return err
-						}
-					}
-					return nil
+			if !sent_ok && time.Now().Sub(serverStarttime) > ibWriteErrorWait {
+				if ib_write_bw_cmd.ProcessState.ExitCode() == -1 {
+					sent_ok = true
+					myTask.OutputChannel <- TaskResult{ServerPort: tcpPort}
 				}
-				time.Sleep(ibWriteErrorWait)
+			} else if time.Now().Sub(serverStarttime) > (time.Duration(myTask.Duration+ibWriteClientWait) * time.Second) {
+				// this next bit kills the process and frees up the worker for another job
+				pid := ib_write_bw_cmd.Process.Pid
+				pgid, err := syscall.Getpgid(pid)
+				if err == nil {
+					fmt.Printf("Client didn't connect or finish in time. Killing process. The pid is %d, and the pgid we are killing is %d\n", pid, pgid)
+					err := syscall.Kill(-pgid, syscall.SIGKILL)
+					if err != nil {
+						fmt.Printf("kill Command finished with error: %v. the pid is/was %d\n", err, pid)
+						return err
+					}
+				}
+				return nil
 			}
+			time.Sleep(ibWriteErrorWait)
 		}
 	}
 	return nil
