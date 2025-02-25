@@ -47,8 +47,12 @@ func startIBWriteBW(myTask Task, nicIndex int) error {
 	arglist = append([]string{"-p", fmt.Sprintf("%d", tcpPort), "-d", fmt.Sprintf("%s", NicList[nicIndex])}, arglist...)
 	//arglist = append([]string{"-p", fmt.Sprintf("%d", tcpPort), "-d", "bnxt_re9"}, arglist...)
 	cmd := "/opt/perftest-with-rocm/bin/ib_write_bw"
-	//cmd = "sleep"
-	//arglist= []string{"36"}
+	/*
+		use this to simualte a client disconnect
+		cmd = "bash"
+		arglist = []string{"-c", "timeout 5 sleep 8"}
+		change bash to baaaaaaaash to simultate  command failed to start
+	*/
 	fmt.Printf("running %s %s\n", cmd, strings.Join(arglist, " "))
 
 	// this will start an ib_write_bw server process
@@ -76,7 +80,11 @@ func startIBWriteBW(myTask Task, nicIndex int) error {
 		select {
 		case ibwbresult := <-done:
 			if ibwbresult.Error != nil {
-				return fmt.Errorf("%s\n%s\n", ibwbresult.Error, ibwbresult.CombinedOutput)
+				if sent_ok {
+					return fmt.Errorf("Client unexpectedly exited")
+				} else {
+					return fmt.Errorf("%s\n%s\n", ibwbresult.Error, ibwbresult.CombinedOutput)
+				}
 			}
 			return nil
 		default:
@@ -85,7 +93,8 @@ func startIBWriteBW(myTask Task, nicIndex int) error {
 					sent_ok = true
 					myTask.OutputChannel <- TaskResult{ServerPort: tcpPort}
 				}
-			} else if time.Now().Sub(serverStarttime) > (time.Duration(myTask.Duration+ibWriteClientWait) * time.Second) {
+			}
+			if time.Now().Sub(serverStarttime) > (time.Duration(myTask.Duration+ibWriteClientWait) * time.Second) {
 				// this next bit kills the process and frees up the worker for another job
 				pid := ib_write_bw_cmd.Process.Pid
 				pgid, err := syscall.Getpgid(pid)

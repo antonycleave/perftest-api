@@ -64,9 +64,11 @@ func taskWorker(index int) {
 		err := startIBWriteBW(task, index)
 		if err != nil {
 			fmt.Printf("in taskworker %v\n", err)
-			var myResult TaskResult
-			myResult.Error = err
-			task.OutputChannel <- myResult
+			if err.Error() != "Client unexpectedly exited" {
+				// this means something failed during job init like impossible args and we  need to pass it back to the submitTask function below so
+				// if can notify the client
+				task.OutputChannel <- TaskResult{Error: err}
+			}
 		}
 		fmt.Printf("Task ID %d completed\n", task.ID)
 	}
