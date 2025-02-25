@@ -10,7 +10,9 @@ import (
 	"time"
 )
 
-const ibWriteClientWait uint64 = 5
+const ibWriteClientWait uint64 = 20
+/* ibWriteErrorWait is the time to wait to ensure that the server process has started
+   it also is used as the delay between default checks */
 const ibWriteErrorWait = 100 * time.Millisecond
 
 func buildIBWriteBWArgs(myTask Task) []string {
@@ -63,31 +65,40 @@ func startIBWriteBW(myTask Task, nicIndex int) error {
 		done <- res
 	}()
 	fmt.Printf("port=%d\n", tcpPort)
-	var myResult TaskResult
-	select {
-	case ibwbresult := <-done:
-		if ibwbresult.Error != nil {
-			return fmt.Errorf("%s\n%s\n", ibwbresult.Error, ibwbresult.CombinedOutput)
-		}
-		return nil
-	case <-time.After(ibWriteErrorWait):
-		// ok so this IS a bit lame BUT:
-		// at this point we have waited for the ibWriteErrorWait duration (I set this to 100 mS as this it 5x the time it takes to fail on an unloaded system)
-		// at this point we assume all is good and the server is started so send back the port number
-		myResult.ServerPort = tcpPort
-		myTask.OutputChannel <- myResult
-		// now you'd think that was the end of it but now we have to wait tor the rest of the timeout period in case our job takes too long
-		time.Sleep((time.Duration(myTask.Duration+ibWriteClientWait) * time.Second) - ibWriteErrorWait)
-		// now we don't want to forever block the  task worker if the client fails to connect or catches fire mid run
-		// this next bit kills the process and frees up the worker for another job
-		pid := ib_write_bw_cmd.Process.Pid
-		pgid, err := syscall.Getpgid(pid)
-		if err == nil {
-			fmt.Printf("Client didn't connect or finish in time. Killing process. The pid is %d, and the pgid we are killing is %d\n", pid, pgid)
-			err := syscall.Kill(-pgid, syscall.SIGKILL)
-			if err != nil {
-				fmt.Printf("kill Command finished with error: %v. the pid is/was %d\n", err, pid)
-				return err
+	sent_ok := false
+	first_run := true
+	first_run_time := time.Now()
+	for {
+		select {
+		case ibwbresult := <-done:
+			if ibwbresult.Error != nil {
+				return fmt.Errorf("%s\n%s\n", ibwbresult.Error, ibwbresult.CombinedOutput)
+			}
+			return nil
+		case <-time.After(time.Duration(myTask.Duration+ibWriteClientWait) * time.Second):
+			// this next bit kills the process and frees up the worker for another job
+			pid := ib_write_bw_cmd.Process.Pid
+			pgid, err := syscall.Getpgid(pid)
+			if err == nil {
+				fmt.Printf("Client didn't connect or finish in time. Killing process. The pid is %d, and the pgid we are killing is %d\n", pid, pgid)
+				err := syscall.Kill(-pgid, syscall.SIGKILL)
+				if err != nil {
+					fmt.Printf("kill Command finished with error: %v. the pid is/was %d\n", err, pid)
+					return err
+				}
+			}
+			return nil
+		default:
+			if first_run {
+				first_run=false
+			} else {
+				if !sent_ok && time.Now().Sub(first_run_time) > ibWriteErrorWait {
+					if ib_write_bw_cmd.ProcessState.ExitCode() == -1 {
+						sent_ok=true
+						myTask.OutputChannel <- TaskResult{ServerPort: tcpPort}
+					}
+				}
+				time.Sleep(ibWriteErrorWait)
 			}
 		}
 	}
